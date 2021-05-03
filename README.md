@@ -21,6 +21,8 @@ Try it here: https://binedit.netlify.app
 
 - CTRL + E toggles between 8-bit view and the tile view. The 8-bit view shows 8 bits per row, so it's easier to edit. The tile
 
+![Eight Bit Mode](./assets/eight-bit-mode.jpg)
+
 - CTRL + H toggles the number in the tile. You can turn it off to make it look nicer.
 
 - CTRL + P toggles the action panel for ASCII preview, File Export, Image Export and Find Countour
