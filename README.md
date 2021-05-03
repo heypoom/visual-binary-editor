@@ -1,10 +1,10 @@
-# Visual Binary Editor
+# Visual Binary Editor: Because Hex is Overrated
 
 ![Screenshot](./assets/screenshot.jpg)
 
 This is a visual binary editor that allows you to edit files in binary! Not in Hex, in **binary**. Real zeros and ones.
 
-Try it here: https://binedit.netlify.app
+Try it here: https://visualbin.netlify.app
 
 ## Key Features
 
