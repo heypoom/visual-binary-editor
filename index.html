@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Binary Editor</title>
+
+    <link rel="preconnect" href="https://fonts.gstatic.com" />
+
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="app">
+      <main @drop.prevent="handleFileDrop" @dragover.prevent v-cloak>
+        <div
+          class="container"
+          :class="{eightMode: isEightMode, hideNumber: isNumberHidden}"
+        >
+          <div
+            v-for="(bit, at) in bits"
+            class="sprite"
+            :class="{on: bit, off: !bit}"
+            @click="toggleBit(at)"
+          >
+            {{Number(bit)}}
+          </div>
+        </div>
+
+        <div class="panel-container" :class="{hidePanel: isPanelHidden}">
+          <div class="strings-panel">{{strings}}</div>
+
+          <div class="export-panel">
+            <div class="action-button-groups">
+              <button class="btn-export-file" @click="exportFile">
+                Export File
+              </button>
+
+              <button class="btn-export-file" @click="savePatternToPng">
+                Save Image
+              </button>
+
+              <button class="btn-export-file" @click="processPattern">
+                Find Contour
+              </button>
+            </div>
+
+            <div class="download-url" v-if="url">
+              URL = <a :href="url" download>Download File</a>
+            </div>
+
+            <div class="image-download-url" v-if="imageUrl">
+              Image = <a :href="imageUrl" download>Download Image</a>
+            </div>
+          </div>
+        </div>
+
+        <canvas id="preview-canvas" v-if="isOpenCVLoaded"></canvas>
+      </main>
+    </div>
+
+    <style scoped>
+      body {
+        margin: 0;
+        font-family: "JetBrains Mono", sans-serif;
+      }
+
+      [v-cloak] {
+        display: none !important;
+      }
+
+      main {
+        color: white;
+        background: black;
+        min-height: 100vh;
+
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+
+        padding: 0px 30px;
+      }
+
+      .container {
+        display: grid;
+        max-width: 100%;
+        grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+        grid-gap: 0;
+
+        background: black;
+      }
+
+      .container.hideNumber .sprite.on {
+        color: white;
+      }
+
+      .container.hideNumber .sprite.off {
+        color: black;
+      }
+
+      .container.eightMode {
+        grid-template-columns: repeat(8, minmax(80px, 1fr));
+      }
+
+      .container.eightMode .sprite {
+        font-size: 20px;
+        width: 80px;
+        height: 80px;
+      }
+
+      .sprite {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        font-weight: 500;
+        font-size: 9px;
+        width: 40px;
+        height: 40px;
+
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .sprite.off {
+        color: white;
+        background: black;
+      }
+
+      .sprite.on {
+        color: black;
+        background: white;
+      }
+
+      .mode-switch {
+        display: block;
+        margin-top: 15px;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      .panel-container {
+        display: flex;
+        flex-direction: column;
+
+        border: 2px solid white;
+        border-bottom: 5px solid white;
+
+        position: fixed;
+        bottom: 35px;
+        background: rgba(0, 0, 0, 0.7);
+        overflow: scroll;
+        padding: 15px 20px;
+        backdrop-filter: blur(5px);
+        width: 500px;
+        height: 150px;
+      }
+
+      .container.eightMode ~ .panel-container {
+        left: 30px;
+        top: 35px;
+      }
+
+      .panel-container.hidePanel {
+        display: none;
+      }
+
+      .strings-panel {
+        font-size: 16px;
+        white-space: pre;
+      }
+
+      .export-panel .download-url {
+        margin-top: 5px;
+      }
+
+      .btn-export-file {
+        color: black;
+        background: white;
+        font-family: "JetBrains Mono", sans-serif;
+        border: 1px solid white;
+        padding: 5px 10px;
+
+        margin-top: 20px;
+        margin-bottom: 10px;
+      }
+
+      .btn-export-file:hover {
+        color: white;
+        background: black;
+      }
+
+      #preview-canvas {
+        margin-top: 30px;
+      }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+
+    <script>
+      const sizeLimits = 4000
+
+      function loadScript(src) {
+        return new Promise((resolve, reject) => {
+          const s = document.createElement("script")
+          s.addEventListener("load", resolve)
+          s.setAttribute("src", src)
+          s.setAttribute("async", "async")
+
+          document.body.appendChild(s)
+        })
+      }
+
+      function loadOpenCV() {
+        return new Promise(async (resolve, reject) => {
+          window.Module = {
+            onRuntimeInitialized: resolve,
+          }
+
+          await loadScript("/libs/opencv.js")
+        })
+      }
+
+      function chunkList(list, length) {
+        const chunks = []
+        let i = 0
+
+        while (i < list.length) {
+          chunks.push(list.slice(i, (i += length)))
+        }
+
+        return chunks
+      }
+
+      /** @param {number[]} bits*/
+      function bitsToAscii(bits) {
+        const chunks = chunkList(bits, 8)
+        console.log("Chunks", chunks)
+
+        return chunks
+          .map((chunk) => parseInt(chunk.join(""), 2))
+          .map((charCode) => String.fromCharCode(charCode))
+          .join("")
+      }
+
+      function parsePng(arrayBuffer) {
+        const p = new png.PNG()
+
+        return new Promise((resolve) => p.parse(arrayBuffer, () => resolve(p)))
+      }
+
+      const app = new Vue({
+        el: ".app",
+        data: {
+          bits: Array.from({ length: 120 }, () => Number(Math.random() < 0.2)),
+          url: "",
+          imageUrl: "",
+
+          isEightMode: true,
+          isPanelHidden: false,
+          isNumberHidden: false,
+
+          isOpenCVLoaded: false,
+          isDOMToImageLoaded: false,
+          isPNGParserLoaded: false,
+        },
+        mounted() {
+          this.loadBits()
+
+          window.addEventListener("keydown", (e) => {
+            // UI Controls
+            if (e.ctrlKey && e.key === "h")
+              return (this.isNumberHidden = !this.isNumberHidden)
+            if (e.ctrlKey && e.key === "e")
+              return (this.isEightMode = !this.isEightMode)
+            if (e.ctrlKey && e.key === "p")
+              return (this.isPanelHidden = !this.isPanelHidden)
+            if (e.ctrlKey && e.key === "s") return this.savePatternToPng()
+
+            // Editor Controls
+            if (e.key === "0") this.bits.push(0)
+            else if (e.key === "1") this.bits.push(1)
+            else if (e.ctrlKey && e.key === "n") this.bits = []
+            else if (e.shiftKey && e.key === "Backspace") this.popChar()
+            else if (e.key === "Backspace") this.bits.pop()
+            else if (e.key === "Enter") this.appendChar("\n")
+            else if (e.key.length === 1) this.appendChar(e.key)
+            else return
+
+            this.saveBits()
+            this.scrollDown()
+          })
+        },
+        computed: {
+          chunks() {
+            return chunkList(this.bits, 8).map((chunk) =>
+              parseInt(chunk.join(""), 2)
+            )
+          },
+
+          strings() {
+            return this.chunks
+              .map((n) => String.fromCharCode(n))
+              .join("")
+              .trim()
+          },
+        },
+        methods: {
+          async handleFileDrop(e) {
+            const files = e.dataTransfer.files
+            if (!files) return
+
+            const [file] = files
+            if (!file) return
+
+            console.log("File Dropped.")
+            window.file = file
+
+            const buffer = await file.arrayBuffer()
+
+            if (file.type === "image/png") {
+              await this.loadPNGParser()
+              console.log("PNG Parsed.")
+
+              const { data, width, height } = await parsePng(buffer)
+
+              window.pngData = data
+
+              const bits = await this.patternToBits([data, width, height])
+              this.bits = bits
+
+              return
+            }
+
+            const hex = Array.from(new Uint8Array(buffer.slice(0, sizeLimits)))
+            window.hex = hex
+
+            const bits = hex
+              .map((n) => n.toString(2).padStart(8, 0))
+              .flatMap((str) => str.split("").map(Number))
+
+            window.bits = bits
+            this.bits = bits
+
+            this.saveBits()
+            this.scrollDown()
+          },
+
+          /**
+            @param {number} groupIndex
+            @param {number} bitAt
+          */
+          toggleBit(bitAt) {
+            Vue.set(this.bits, bitAt, Number(!this.bits[bitAt]))
+
+            this.saveBits()
+          },
+
+          exportFile() {
+            URL.revokeObjectURL(this.url)
+
+            const blob = new Blob([new Uint8Array(this.chunks)])
+            const url = window.URL.createObjectURL(blob)
+
+            this.url = url
+          },
+
+          saveBits() {
+            localStorage.setItem("bits", this.bits.join(""))
+          },
+
+          loadBits() {
+            const savedBits = localStorage.getItem("bits")
+            if (!savedBits) return
+
+            this.bits = savedBits.split("").map(Number)
+          },
+
+          appendChar(char) {
+            if (char.length !== 1) return
+
+            const bits = char
+              .charCodeAt(0)
+              .toString(2)
+              .padStart(8, 0)
+              .split("")
+              .map(Number)
+
+            console.log(`Append: ${char} = ${bits.join("")}`)
+
+            this.bits.push(...bits)
+          },
+
+          popChar() {
+            this.bits.splice(this.bits.length - 8, 8)
+          },
+
+          scrollDown() {
+            setTimeout(() => {
+              window.scrollTo(0, Number.MAX_SAFE_INTEGER)
+            }, 50)
+          },
+
+          async loadOpenCV() {
+            if (this.isOpenCVLoaded) return
+
+            await loadOpenCV()
+            console.log(cv.getBuildInformation())
+
+            this.isOpenCVLoaded = true
+          },
+
+          async loadPNGParser() {
+            if (this.isPNGParserLoaded) return
+            const cdnUrl = "https://cdn.jsdelivr.net/npm/pngjs@6.0.0/browser.js"
+
+            await loadScript(cdnUrl)
+            console.log("Png Parser Loaded")
+
+            this.isPNGParserLoaded = true
+          },
+
+          async loadDomToImage() {
+            if (this.isDOMToImageLoaded) return
+
+            const cdnUrl =
+              "https://cdnjs.cloudflare.com/ajax/libs/dom-to-image/2.6.0/dom-to-image.min.js"
+
+            await loadScript(cdnUrl)
+            console.log("DOM to Image Loaded")
+
+            this.isDOMToImageLoaded = true
+          },
+
+          async savePatternToPng() {
+            await this.loadDomToImage()
+
+            URL.revokeObjectURL(this.imageUrl)
+
+            this.isEightMode = false
+            this.isNumberHidden = true
+
+            const element = document.querySelector(".container")
+            const blob = await domtoimage.toBlob(element)
+            this.imageUrl = URL.createObjectURL(blob)
+
+            console.log("Pattern saved:", this.url)
+          },
+
+          async getPatternAsPixelData() {
+            await this.loadDomToImage()
+
+            const element = document.querySelector(".container")
+            const pixels = await domtoimage.toPixelData(element)
+
+            // prettier-ignore
+            console.log(`W x H = ${element.scrollWidth} x ${element.scrollHeight}`)
+
+            return [pixels, element.scrollWidth, element.scrollHeight]
+          },
+
+          async getPatternAsImageData() {
+            const [pixels, width, height] = await this.getPatternAsPixelData()
+
+            return new ImageData(pixels, width, height)
+          },
+
+          async processPattern() {
+            await this.loadOpenCV()
+
+            this.isEightMode = false
+            this.isPanelHidden = true
+            this.isNumberHidden = true
+
+            const imageData = await this.getPatternAsImageData()
+            const src = cv.matFromImageData(imageData)
+
+            const dst = cv.Mat.zeros(src.rows, src.cols, cv.CV_8UC3)
+            cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0)
+            cv.threshold(src, src, 120, 200, cv.THRESH_BINARY)
+
+            const contours = new cv.MatVector()
+            const hierarchy = new cv.Mat()
+
+            cv.findContours(
+              src,
+              contours,
+              hierarchy,
+              cv.RETR_CCOMP,
+              cv.CHAIN_APPROX_SIMPLE
+            )
+
+            for (let i = 0; i < contours.size(); ++i) {
+              const color = new cv.Scalar(
+                Math.round(Math.random() * 255),
+                Math.round(Math.random() * 255),
+                Math.round(Math.random() * 255)
+              )
+
+              cv.drawContours(
+                dst,
+                contours,
+                i,
+                color,
+                1,
+                cv.LINE_8,
+                hierarchy,
+                100
+              )
+            }
+
+            this.isPanelHidden = false
+            // this.isNumberHidden = false
+
+            cv.imshow("preview-canvas", dst)
+
+            return dst
+          },
+
+          async patternToBits([data, width, height]) {
+            const tileSize = 40
+            const bits = []
+
+            const pixels = chunkList(data, 4)
+            const tiles = chunkList(pixels, width)
+
+            let x = 0
+            let y = 0
+
+            while (y < height) {
+              x = 0
+
+              while (x < width) {
+                let color = tiles[y][x]
+                if (!color) continue
+
+                const [red, green, blue, alpha] = color
+
+                if (red === 255) bits.push(1)
+                else if (red === 0) bits.push(0)
+                else return []
+
+                x += tileSize + 1
+              }
+
+              y += tileSize + 1
+            }
+
+            console.log(`Bits:`, { bits, ascii: bitsToAscii(bits) })
+
+            return bits
+          },
+        },
+      })
+
+      window.app = app
+    </script>
+  </body>
+</html>
