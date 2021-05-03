@@ -1,6 +1,10 @@
 # Visual Binary Editor
 
+![Screenshot](./assets/screenshot.jpg)
+
 This is a visual binary editor that allows you to edit files in binary! Not in Hex, in **binary**. Real zeros and ones.
+
+Try it here: https://binedit.netlify.app
 
 ## Key Features
 
@@ -37,4 +41,6 @@ This is a visual binary editor that allows you to edit files in binary! Not in H
 
 Click on "Export Image" to export a pattern image, where you can send to your friend to decode. Click on the URL to download the image.
 
-Drop the exported PNG file to decode to the current buffer.
+Drop the exported PNG file to decode to the current buffer. Here is an example of the exported pattern -- try to drop it into the editor!
+
+![Steganography Pattern](./assets/sample-pattern-image.png)
